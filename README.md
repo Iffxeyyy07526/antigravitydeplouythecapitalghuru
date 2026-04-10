@@ -82,6 +82,22 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 ```
 
-## Deployment
-The app is configured for full-stack deployment on Cloud Run.
-Ensure `NODE_ENV=production` is set in your environment.
+## Deployment (Vercel)
+
+The app is now optimized for **Vercel** with a Serverless Backend.
+
+### 1. Environment Variables
+Add these in your Vercel Project Settings:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+- `RESEND_API_KEY`
+
+### 2. Deployment Instructions
+1. Push the latest code to GitHub: `git push origin main --force`
+2. Connect your GitHub repository to Vercel.
+3. Vercel will automatically detect the Vite frontend and the `api/` directory (Serverless Functions).
+4. Deploy!
+
