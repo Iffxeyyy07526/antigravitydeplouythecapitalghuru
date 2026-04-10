@@ -1,14 +1,9 @@
-import express from "express";
-import Razorpay from "razorpay";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import dotenv from "dotenv";
 
 dotenv.config();
-
-const app = express();
-app.use(express.json());
 
 // Lazy initialization helpers to prevent startup crashes
 let supabaseAdmin: any = null;
@@ -27,19 +22,12 @@ const getSupabaseAdmin = () => {
 
 let razorpay: any = null;
 const getRazorpay = () => {
-  if (!razorpay) {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if (!keyId || !keySecret) {
-      console.error("CRITICAL: Razorpay environment variables missing");
-      return null;
-    }
-    razorpay = new Razorpay({
-      key_id: keyId,
-      key_secret: keySecret,
-    });
-  }
-  return razorpay;
+    // Note: We need the secret for signature verification, but we don't necessarily need the full Razorpay SDK instance here if we just use crypto.
+    // However, for consistency we use the same environment variables.
+    return {
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET
+    };
 };
 
 let resend: any = null;
@@ -55,35 +43,17 @@ const getResend = () => {
   return resend;
 };
 
-// API Routes
-app.post("/api/payments/create-order", async (req, res) => {
-  try {
-    const rzp = getRazorpay();
-    if (!rzp) return res.status(500).json({ error: "Razorpay not configured" });
-
-    const { amount, plan } = req.body;
-    const options = {
-      amount: amount * 100, // amount in the smallest currency unit (paise)
-      currency: "INR",
-      receipt: `receipt_${Date.now()}`,
-      notes: { plan },
-    };
-
-    const order = await rzp.orders.create(options);
-    res.json(order);
-  } catch (error) {
-    console.error("Razorpay order creation error:", error);
-    res.status(500).json({ error: "Failed to create order" });
+export default async function handler(req: any, res: any) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
-});
 
-app.post("/api/payments/verify", async (req, res) => {
   try {
     const rzp = getRazorpay();
     const sbAdmin = getSupabaseAdmin();
     const rsnd = getResend();
 
-    if (!rzp || !sbAdmin) {
+    if (!rzp.key_secret || !sbAdmin) {
       return res.status(500).json({ error: "Server configuration missing" });
     }
 
@@ -99,7 +69,7 @@ app.post("/api/payments/verify", async (req, res) => {
 
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || "")
+      .createHmac("sha256", rzp.key_secret || "")
       .update(body.toString())
       .digest("hex");
 
@@ -163,6 +133,4 @@ app.post("/api/payments/verify", async (req, res) => {
     console.error("Payment verification error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
-});
-
-export default app;
+}
