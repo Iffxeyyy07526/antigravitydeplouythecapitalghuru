@@ -18,14 +18,45 @@ export default function Login() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [showEmailSent, setShowEmailSent] = useState(false);
   const navigate = useNavigate();
-  const { session, subscription } = useAuth();
+  const { session, user, subscription } = useAuth();
+  const location = useLocation();
 
-  // Auto-redirect if session exists (redundant but safe)
+  // Auto-redirect if session exists AND email is confirmed
   useEffect(() => {
-    if (session) {
+    if (session && user?.email_confirmed_at) {
       navigate(subscription ? '/dashboard' : '/pricing', { replace: true });
     }
-  }, [session, subscription, navigate]);
+    
+    // Check if redirected from a protected route because of unverified status
+    const state = location.state as { error?: string; email?: string } | null;
+    if (state?.error === 'unverified') {
+      setEmail(state.email || '');
+      setShowEmailSent(true);
+    }
+  }, [session, user, subscription, navigate, location]);
+
+  const handleResendVerification = async () => {
+    if (!email) {
+      toast.error("Please enter your email");
+      return;
+    }
+    
+    setLoading(true);
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/dashboard`,
+      }
+    });
+    setLoading(false);
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Verification email resent!");
+    }
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,13 +78,13 @@ export default function Login() {
           if (error.message.includes("User already registered")) {
             toast.error("User already registered");
           } else {
-            toast.error("Something went wrong, try again");
+            toast.error(error.message);
           }
           return;
         }
 
-        // If session is null, it means email confirmation is enabled
-        if (data.user && !data.session) {
+        // If session is null OR user is not confirmed, show email sent screen
+        if (data.user && (!data.session || !data.user.email_confirmed_at)) {
           setShowEmailSent(true);
           toast.success('Verification email sent!');
         } else if (data.session) {
@@ -61,18 +92,20 @@ export default function Login() {
           navigate('/dashboard');
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         
         if (error) {
           console.error("Login error:", error);
-          if (error.message.includes("Invalid login credentials")) {
-            toast.error("Invalid email or password");
-          } else {
-            toast.error("Something went wrong, try again");
-          }
+          toast.error(error.message);
+          return;
+        }
+
+        if (data.user && !data.user.email_confirmed_at) {
+          setShowEmailSent(true);
+          toast.error('Email not verified. Please check your inbox.');
           return;
         }
         
@@ -117,13 +150,22 @@ export default function Login() {
                 We've sent a verification link to <span className="text-white font-bold">{email}</span>. 
                 Please click the link to activate your terminal access.
               </p>
-              <Button 
-                variant="outline" 
-                className="w-full btn-outline-premium h-12 md:h-14 border-white/10 rounded-xl"
-                onClick={() => setShowEmailSent(false)}
-              >
-                Back to Login
-              </Button>
+              <div className="space-y-4">
+                <Button 
+                  variant="outline" 
+                  className="w-full btn-outline-premium h-12 md:h-14 border-white/10 rounded-xl"
+                  onClick={() => setShowEmailSent(false)}
+                >
+                  Back to Login
+                </Button>
+                <button
+                  onClick={handleResendVerification}
+                  disabled={loading}
+                  className="text-brand hover:text-brand-dark transition-colors font-black uppercase tracking-wider text-[10px] md:text-xs mx-auto block"
+                >
+                  Didn't receive code? Resend
+                </button>
+              </div>
             </div>
           ) : (
             <>

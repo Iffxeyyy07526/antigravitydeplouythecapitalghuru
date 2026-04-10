@@ -24,7 +24,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !userId) return;
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -32,34 +32,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .single();
 
+      if (error) {
+        console.error("Error fetching profile:", error.message);
+        setProfile(null);
+        return;
+      }
+
       if (data) {
         setProfile(data);
       } else {
-        setProfile(null);
+        // Fallback: Create profile if it doesn't exist
+        console.log("Profile not found, creating for user:", userId);
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            email: user?.email || '',
+            full_name: user?.user_metadata?.full_name || '',
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error("Failed to auto-create profile:", createError.message);
+          setProfile(null);
+        } else {
+          setProfile(newProfile);
+        }
       }
     } catch (err) {
-      console.error("Error fetching profile:", err);
+      console.error("Auth Exception (Profile):", err);
       setProfile(null);
     }
   };
 
   const fetchSubscription = async (userId: string) => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !userId) return;
     try {
       const { data, error } = await supabase
         .from('subscriptions')
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'active')
-        .single();
+        .maybeSingle();
 
-      if (data) {
-        setSubscription(data);
-      } else {
+      if (error) {
+        console.error("Error fetching subscription:", error.message);
         setSubscription(null);
+        return;
       }
+
+      setSubscription(data || null);
     } catch (err) {
-      console.error("Error fetching subscription:", err);
+      console.error("Auth Exception (Subscription):", err);
       setSubscription(null);
     }
   };

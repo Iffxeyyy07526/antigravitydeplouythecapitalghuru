@@ -74,6 +74,8 @@ export default async function handler(req: any, res: any) {
       .digest("hex");
 
     if (expectedSignature === razorpay_signature) {
+      console.log(`[PAYMENT] Signature verified for user ${userId}. Processing...`);
+
       // 1. Store payment in DB
       const { error: paymentError } = await sbAdmin.from("payments").insert({
         user_id: userId,
@@ -83,7 +85,10 @@ export default async function handler(req: any, res: any) {
         status: "success",
       });
 
-      if (paymentError) throw paymentError;
+      if (paymentError) {
+        console.error("[DATABASE] Payment insert failed:", paymentError.message);
+        throw paymentError;
+      }
 
       // 2. Create/Update subscription
       const durationDays = plan === "monthly" ? 30 : plan === "six_month" ? 180 : 365;
@@ -98,13 +103,18 @@ export default async function handler(req: any, res: any) {
         expires_at: expiresAt.toISOString(),
       }, { onConflict: 'user_id' });
 
-      if (subError) throw subError;
+      if (subError) {
+        console.error("[DATABASE] Subscription upsert failed:", subError.message);
+        throw subError;
+      }
+
+      console.log(`[SUCCESS] Subscription activated for ${userId}. Sending email...`);
 
       // 3. Send email via Resend
       if (rsnd) {
         try {
-          await rsnd.emails.send({
-            from: "Mahir@thecapitalguru.net",
+          const emailResponse = await rsnd.emails.send({
+            from: "Mahir <Mahir@thecapitalguru.net>",
             to: email,
             subject: "Your VIP Access – The Capital Guru",
             html: `
@@ -116,21 +126,23 @@ export default async function handler(req: any, res: any) {
                 <div style="margin-top: 30px;">
                   <a href="https://t.me/TheCapitalGuruSupport" style="background-color: #00ffcc; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Join Telegram Now</a>
                 </div>
-                <p style="margin-top: 30px; font-size: 12px; color: #666;">If you have any issues, please contact support.</p>
+                <p style="margin-top: 30px; font-size: 12px; color: #666;">If you have any issues, please contact support at support@thecapitalguru.net</p>
               </div>
             `,
           });
+          console.log("[EMAIL] Resend response:", emailResponse);
         } catch (emailError) {
-          console.error("Email sending error:", emailError);
+          console.error("[EMAIL] Resend failure:", emailError);
         }
       }
 
-      res.json({ status: "ok" });
+      return res.json({ status: "ok" });
     } else {
-      res.status(400).json({ error: "Invalid signature" });
+      console.warn(`[SECURITY] Invalid payment signature for user ${userId}`);
+      return res.status(400).json({ error: "Invalid signature" });
     }
-  } catch (error) {
-    console.error("Payment verification error:", error);
-    res.status(500).json({ error: "Internal server error" });
+  } catch (error: any) {
+    console.error("[API_ERROR] Payment verification exception:", error.message);
+    return res.status(500).json({ error: error.message || "Internal server error" });
   }
 }

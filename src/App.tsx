@@ -64,7 +64,11 @@ function AppContent() {
             path="/login" 
             element={
               session ? (
-                <Navigate to={subscription ? "/dashboard" : "/pricing"} replace />
+                user?.email_confirmed_at ? (
+                  <Navigate to={subscription ? "/dashboard" : "/pricing"} replace />
+                ) : (
+                  <Login />
+                )
               ) : (
                 <Login />
               )
@@ -93,13 +97,18 @@ function AppContent() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, subscription, loading } = useAuth();
+  const { session, user, subscription, loading } = useAuth();
   const location = useLocation();
 
   if (loading) return null;
 
-  if (!session) {
+  if (!session || !user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // Strictly enforce email verification
+  if (!user.email_confirmed_at) {
+    return <Navigate to="/login" state={{ error: 'unverified', email: user.email }} replace />;
   }
 
   if (!subscription) {
